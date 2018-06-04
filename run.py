@@ -92,6 +92,47 @@ def vae_conv(data_dim, latent_dim):
     return inputs, decoder_train_output, \
            decoder_inputs, decoder_output, loss, trainer
 
+def vae_class_conditional(data_dim, latent_dim, labels_dim):
+    inputs = tf.placeholder(tf.float32, [None, data_dim])
+    input_labels = tf.placeholder(tf.float32, [None, labels_dim])
+    batch_size = tf.shape(inputs)[0]
+    # Declare decoder components.
+    dec_fc1 = tf.layers.Dense(units=200, activation=tf.nn.relu)
+    dec_fc2 = tf.layers.Dense(units=500, activation=tf.nn.relu)
+    dec_fc3 = tf.layers.Dense(units=data_dim, activation=tf.nn.sigmoid)
+    # Encode.
+    concat_inputs = tf.concat([inputs, input_labels], axis=1)
+    enc_fc1 = tf.layers.dense(concat_inputs, units=500, activation=tf.nn.relu)
+    enc_fc2 = tf.layers.dense(enc_fc1, units=200, activation=tf.nn.relu)
+    mean_fc3 = tf.layers.dense(enc_fc2, units=latent_dim)
+    stddev_fc3 = tf.layers.dense(enc_fc2, units=latent_dim) # log(sigma^2)
+    # Apply reparameterization towards sampling.
+    mvn_sampler = tf.contrib.distributions.MultivariateNormalDiag(
+        loc=tf.zeros(latent_dim))
+    samples = mvn_sampler.sample(batch_size)
+    samples = tf.sqrt(tf.exp(stddev_fc3)) * samples + mean_fc3
+    # Share parameters between decoder used for training and inference.
+    decoder_inputs = tf.placeholder(tf.float32, [None, latent_dim])
+    decoder_input_labels = tf.placeholder(tf.float32, [None, labels_dim])
+    decoder_output = tf.concat([decoder_inputs, decoder_input_labels], axis=1)
+    decoder_train_output = tf.concat([samples, input_labels], axis=1)
+    for decoder_layer in [dec_fc1, dec_fc2, dec_fc3]:
+        decoder_output = decoder_layer(decoder_output)
+        decoder_train_output = decoder_layer(decoder_train_output)
+    # Define loss function.
+    eps = 1e-10
+    recon_loss = -tf.reduce_sum(
+        inputs * tf.log(decoder_train_output + eps) + \
+        (1 - inputs) * tf.log((1 - decoder_train_output) + eps), axis=1)
+    recon_loss = tf.reduce_mean(recon_loss)
+    kl_loss = -0.5 * tf.reduce_sum(
+        1 + stddev_fc3 - tf.square(mean_fc3) - tf.exp(stddev_fc3), axis=1)
+    kl_loss = tf.reduce_mean(kl_loss)
+    loss = recon_loss + kl_loss
+    trainer = tf.train.AdamOptimizer().minimize(loss)
+    return inputs, input_labels, decoder_train_output, \
+           decoder_inputs, decoder_input_labels, decoder_output, loss, trainer
+
 def run():
     data, labels = get_mnist_data()
     data = data.reshape(-1, 784) / 255.
@@ -134,5 +175,51 @@ def run():
                     output_buffer[i*28:(i+1)*28, j*28:(j+1)*28] = decoded_outputs[i, j]
             skio.imsave(output_dir + '/%d.png' % t, output_buffer)
 
+def run_class_conditional():
+    data, labels = get_mnist_data()
+    data = data.reshape(-1, 784) / 255.
+    num_classes = 10
+    batch_size = 100
+    num_iters = 20000
+    # Declare model.
+    latent_dim = 10
+    inputs, input_labels, decoder_train_output, decoder_inputs, \
+            decoder_input_labels, decoder_output, loss, trainer = vae_class_conditional(784, latent_dim, num_classes)
+    sess = tf.Session()
+    sess.run(tf.global_variables_initializer())
+    # Visualization points.
+    num_viz, num_cols = 20, 20
+    rows, row_labels = [], []
+    for i in range(num_viz):
+        xs = np.random.multivariate_normal(
+            np.zeros(latent_dim), np.eye(latent_dim), 2)
+        step = (xs[1] - xs[0]) / float(num_cols)
+        rows.append([xs[0] + step*j for j in range(num_cols)])
+        row_labels += [i // 2] * num_cols
+    rows = np.array(rows).reshape(-1, latent_dim)
+    row_labels = np.diag(np.arange(10))[row_labels]
+    output_dir = 'out5'
+    if not os.path.exists(output_dir):
+        os.mkdir(output_dir)
+    # Train.
+    for t in range(num_iters):
+        idx = np.random.choice(np.arange(len(data)), batch_size, replace=False)
+        X_batch, y_batch = data[idx], labels[idx]
+        y_batch_one_hot = np.diag(np.arange(10))[y_batch.astype(np.int32)]
+        _, batch_loss = sess.run([trainer, loss], {inputs: X_batch,
+                                                   input_labels: y_batch_one_hot})
+        if t % 200 == 0:
+            print(t, np.mean(batch_loss))
+            decoded_outputs = sess.run(
+                decoder_output, {decoder_inputs: rows,
+                                 decoder_input_labels: row_labels})
+            decoded_outputs = decoded_outputs.reshape(num_viz, num_cols, 28, 28)
+            output_buffer = np.zeros((num_viz * 28, num_cols * 28))
+            for i in range(num_viz):
+                for j in range(num_cols):
+                    output_buffer[i*28:(i+1)*28, j*28:(j+1)*28] = decoded_outputs[i, j]
+            skio.imsave(output_dir + '/%d.png' % t, output_buffer)
+
 if __name__ == '__main__':
-    run()
+    # run()
+    run_class_conditional()
