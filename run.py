@@ -1,5 +1,5 @@
 from skimage.transform import resize
-from util import get_mnist_data, get_orl_face_data
+from util import get_mnist_data, get_olivetti_data
 import numpy as np
 import os
 import skimage.io as skio
@@ -120,26 +120,22 @@ def vae_face_conv(data_dim, latent_dim):
     inputs = tf.placeholder(tf.float32, [None] + list(data_dim))
     batch_size = tf.shape(inputs)[0]
     # Declare decoder components.
-    dec_fc1 = tf.layers.Dense(units=200, activation=tf.nn.relu)
-    dec_fc2 = tf.layers.Dense(units=7*6*64, activation=tf.nn.relu)
-    dec_conv1 = tf.layers.Conv2DTranspose(filters=32, kernel_size=(3, 3), strides=2,
+    dec_fc1 = tf.layers.Dense(units=500, activation=tf.nn.relu)
+    dec_fc2 = tf.layers.Dense(units=8*8*32, activation=tf.nn.relu)
+    dec_conv1 = tf.layers.Conv2DTranspose(filters=64, kernel_size=(3, 3), strides=2,
                                           padding='same', activation=tf.nn.relu)
-    dec_conv2 = tf.layers.Conv2DTranspose(filters=16, kernel_size=(3, 3), strides=2,
+    dec_conv2 = tf.layers.Conv2DTranspose(filters=32, kernel_size=(3, 3), strides=2,
                                           padding='same', activation=tf.nn.relu)
-    dec_conv3 = tf.layers.Conv2DTranspose(filters=8, kernel_size=(3, 3), strides=2,
-                                          padding='same', activation=tf.nn.relu)
-    dec_conv4 = tf.layers.Conv2DTranspose(filters=1, kernel_size=(3, 3), strides=2,
+    dec_conv3 = tf.layers.Conv2DTranspose(filters=1, kernel_size=(3, 3), strides=2,
                                           padding='same', activation=tf.nn.sigmoid)
     # Encode.
-    enc_conv1 = tf.layers.conv2d(inputs, filters=8, kernel_size=(3, 3),
+    enc_conv1 = tf.layers.conv2d(inputs, filters=32, kernel_size=(3, 3),
                                  strides=(2, 2), padding='same', activation=tf.nn.relu)
-    enc_conv2 = tf.layers.conv2d(enc_conv1, filters=16, kernel_size=(3, 3),
+    enc_conv2 = tf.layers.conv2d(enc_conv1, filters=64, kernel_size=(3, 3),
                                  strides=(2, 2), padding='same', activation=tf.nn.relu)
-    enc_conv3 = tf.layers.conv2d(enc_conv2, filters=32, kernel_size=(3, 3),
+    enc_conv3 = tf.layers.conv2d(enc_conv2, filters=64, kernel_size=(3, 3),
                                  strides=(2, 2), padding='same', activation=tf.nn.relu)
-    enc_conv4 = tf.layers.conv2d(enc_conv3, filters=64, kernel_size=(3, 3),
-                                 strides=(2, 2), padding='same', activation=tf.nn.relu)
-    enc_fc3 = tf.layers.dense(tf.layers.flatten(enc_conv4), units=500, activation=tf.nn.relu)
+    enc_fc3 = tf.layers.dense(tf.layers.flatten(enc_conv3), units=500, activation=tf.nn.relu)
     enc_fc4 = tf.layers.dense(enc_fc3, units=200, activation=tf.nn.relu)
     mean_fc5 = tf.layers.dense(enc_fc4, units=latent_dim)
     stddev_fc5 = tf.layers.dense(enc_fc4, units=latent_dim) # log(sigma^2)
@@ -155,9 +151,9 @@ def vae_face_conv(data_dim, latent_dim):
     for decoder_layer in [dec_fc1, dec_fc2]:
         decoder_output = decoder_layer(decoder_output)
         decoder_train_output = decoder_layer(decoder_train_output)
-    decoder_output = tf.keras.layers.Reshape([7, 6, 64])(decoder_output)
-    decoder_train_output = tf.reshape(decoder_train_output, [batch_size, 7, 6, 64])
-    for decoder_layer in [dec_conv1, dec_conv2, dec_conv3, dec_conv4]:
+    decoder_output = tf.keras.layers.Reshape([8, 8, 32])(decoder_output)
+    decoder_train_output = tf.reshape(decoder_train_output, [batch_size, 8, 8, 32])
+    for decoder_layer in [dec_conv1, dec_conv2, dec_conv3]:
         decoder_output = decoder_layer(decoder_output)
         decoder_train_output = decoder_layer(decoder_train_output)
     # Define loss function.
@@ -179,15 +175,10 @@ def vae_class_conditional(data_dim, latent_dim, labels_dim):
     input_labels = tf.placeholder(tf.float32, [None, labels_dim])
     batch_size = tf.shape(inputs)[0]
     # Declare decoder components.
-    dec_fc1 = tf.layers.Dense(units=200, activation=tf.nn.relu)
-    dec_fc2 = tf.layers.Dense(units=500, activation=tf.nn.relu)
-    dec_fc3 = tf.layers.Dense(units=data_dim, activation=tf.nn.sigmoid)
+    dec_layers = mnist_decoders(data_dim)
     # Encode.
     concat_inputs = tf.concat([inputs, input_labels], axis=1)
-    enc_fc1 = tf.layers.dense(concat_inputs, units=500, activation=tf.nn.relu)
-    enc_fc2 = tf.layers.dense(enc_fc1, units=200, activation=tf.nn.relu)
-    mean_fc3 = tf.layers.dense(enc_fc2, units=latent_dim)
-    stddev_fc3 = tf.layers.dense(enc_fc2, units=latent_dim) # log(sigma^2)
+    mean_fc3, stddev_fc3 = apply_mnist_encoders(concat_inputs, latent_dim)
     # Apply reparameterization towards sampling.
     mvn_sampler = tf.contrib.distributions.MultivariateNormalDiag(
         loc=tf.zeros(latent_dim))
@@ -198,17 +189,15 @@ def vae_class_conditional(data_dim, latent_dim, labels_dim):
     decoder_input_labels = tf.placeholder(tf.float32, [None, labels_dim])
     decoder_output = tf.concat([decoder_inputs, decoder_input_labels], axis=1)
     decoder_train_output = tf.concat([samples, input_labels], axis=1)
-    for decoder_layer in [dec_fc1, dec_fc2, dec_fc3]:
+    for decoder_layer in dec_layers:
         decoder_output = decoder_layer(decoder_output)
         decoder_train_output = decoder_layer(decoder_train_output)
     # Define loss function.
-    eps = 1e-10
     recon_loss = -tf.reduce_sum(
-        inputs * tf.log(decoder_train_output + eps) + \
-        (1 - inputs) * tf.log((1 - decoder_train_output) + eps), axis=1)
+        bernoulli_recon_loss(inputs, decoder_train_output), axis=1)
     recon_loss = tf.reduce_mean(recon_loss)
     kl_loss = -0.5 * tf.reduce_sum(
-        1 + stddev_fc3 - tf.square(mean_fc3) - tf.exp(stddev_fc3), axis=1)
+        gaussian_kl_loss(mean_fc3, stddev_fc3), axis=1)
     kl_loss = tf.reduce_mean(kl_loss)
     loss = recon_loss + kl_loss
     trainer = tf.train.AdamOptimizer().minimize(loss)
@@ -219,13 +208,12 @@ def run():
     data, labels = get_mnist_data()
     data = data.reshape(-1, 784) / 255.
     # data = data.reshape(-1, 28, 28, 1) / 255.
-    # data, labels = get_orl_face_data()
-    # data = np.array([resize(x, (112, 96)) / 255. for x in data])
-    # data = data.reshape(-1, 112, 96, 1)
+    # data, labels = get_olivetti_data()
+    # data = data.reshape(-1, 64, 64, 1)
     batch_size = 100
     num_iters = 10000
     img_height, img_width = 28, 28
-    # img_height, img_width = 96, 112
+    # img_height, img_width = 64, 64
     # Declare model.
     latent_dim = 10
     inputs, decoder_train_output, decoder_inputs, \
@@ -233,7 +221,7 @@ def run():
     # inputs, decoder_train_output, decoder_inputs, \
     #         decoder_output, loss, trainer = vae_mnist_conv([28, 28, 1], latent_dim)
     # inputs, decoder_train_output, decoder_inputs, \
-    #         decoder_output, loss, trainer = vae_face_conv([112, 96, 1], latent_dim)
+    #         decoder_output, loss, trainer = vae_face_conv([64, 64, 1], latent_dim)
     sess = tf.Session()
     sess.run(tf.global_variables_initializer())
     # Visualization points.
