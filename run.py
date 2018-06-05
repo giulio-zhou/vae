@@ -248,6 +248,46 @@ def vae_class_conditional(data_dim, latent_dim, labels_dim):
     return inputs, input_labels, decoder_train_output, \
            decoder_inputs, decoder_input_labels, decoder_output, loss, trainer
 
+def vae_faces_class_conditional(data_dim, latent_dim, labels_dim):
+    inputs = tf.placeholder(tf.float32, [None] + list(data_dim))
+    input_labels = tf.placeholder(tf.float32, [None, labels_dim])
+    batch_size = tf.shape(inputs)[0]
+    # Declare decoder components.
+    dec_fc, dec_conv = faces_decoders()
+    # Encode.
+    enc_conv3 = apply_faces_conv_encoders(inputs)
+    concat_inputs = tf.concat([tf.layers.flatten(enc_conv3), input_labels], axis=1)
+    mean_fc5, stddev_fc5 = apply_faces_fc_encoders(concat_inputs, latent_dim)
+    # Apply reparameterization towards sampling.
+    mvn_sampler = tf.contrib.distributions.MultivariateNormalDiag(
+        loc=tf.zeros(latent_dim))
+    samples = mvn_sampler.sample(batch_size)
+    samples = tf.sqrt(tf.exp(stddev_fc5)) * samples + mean_fc5
+    # Share parameters between decoder used for training and inference.
+    decoder_inputs = tf.placeholder(tf.float32, [None, latent_dim])
+    decoder_input_labels = tf.placeholder(tf.float32, [None, labels_dim])
+    decoder_output = tf.concat([decoder_inputs, decoder_input_labels], axis=1)
+    decoder_train_output = tf.concat([samples, input_labels], axis=1)
+    for decoder_layer in dec_fc:
+        decoder_output = decoder_layer(decoder_output)
+        decoder_train_output = decoder_layer(decoder_train_output)
+    decoder_output = tf.keras.layers.Reshape([8, 8, 32])(decoder_output)
+    decoder_train_output = tf.reshape(decoder_train_output, [batch_size, 8, 8, 32])
+    for decoder_layer in dec_conv:
+        decoder_output = decoder_layer(decoder_output)
+        decoder_train_output = decoder_layer(decoder_train_output)
+    # Define loss function.
+    recon_loss = -tf.reduce_sum(
+        bernoulli_recon_loss(inputs, decoder_train_output), axis=1)
+    recon_loss = tf.reduce_mean(recon_loss)
+    kl_loss = -0.5 * tf.reduce_sum(
+        gaussian_kl_loss(mean_fc5, stddev_fc5), axis=1)
+    kl_loss = tf.reduce_mean(kl_loss)
+    loss = recon_loss + kl_loss
+    trainer = tf.train.AdamOptimizer().minimize(loss)
+    return inputs, input_labels, decoder_train_output, \
+           decoder_inputs, decoder_input_labels, decoder_output, loss, trainer
+
 def run():
     data, labels = get_mnist_data()
     data = data.reshape(-1, 784) / 255.
