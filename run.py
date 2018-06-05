@@ -341,11 +341,13 @@ def run_class_conditional():
             decoded_outputs = sess.run(
                 decoder_output, {decoder_inputs: rows,
                                  decoder_input_labels: row_labels})
-            decoded_outputs = decoded_outputs.reshape(num_viz, num_cols, 28, 28)
-            output_buffer = np.zeros((num_viz * 28, num_cols * 28))
+            decoded_outputs = decoded_outputs.reshape(num_viz, num_cols,
+                                                      img_height, img_width)
+            output_buffer = np.zeros((num_viz * img_height, num_cols * img_width))
             for i in range(num_viz):
                 for j in range(num_cols):
-                    output_buffer[i*28:(i+1)*28, j*28:(j+1)*28] = decoded_outputs[i, j]
+                    output_buffer[i*img_height:(i+1)*img_height,
+                                  j*img_width:(j+1)*img_width] = decoded_outputs[i, j]
             skio.imsave(output_dir + '/%d.png' % t, output_buffer)
 
 if __name__ == '__main__':
