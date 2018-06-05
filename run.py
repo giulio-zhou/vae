@@ -52,17 +52,25 @@ def faces_decoders():
     dec_conv = [dec_conv1, dec_conv2, dec_conv3]
     return dec_fc, dec_conv
 
-def apply_faces_encoders(inputs, latent_dim):
+def apply_faces_conv_encoders(inputs):
     enc_conv1 = tf.layers.conv2d(inputs, filters=32, kernel_size=(3, 3),
                                  strides=(2, 2), padding='same', activation=tf.nn.relu)
     enc_conv2 = tf.layers.conv2d(enc_conv1, filters=64, kernel_size=(3, 3),
                                  strides=(2, 2), padding='same', activation=tf.nn.relu)
     enc_conv3 = tf.layers.conv2d(enc_conv2, filters=64, kernel_size=(3, 3),
                                  strides=(2, 2), padding='same', activation=tf.nn.relu)
-    enc_fc3 = tf.layers.dense(tf.layers.flatten(enc_conv3), units=500, activation=tf.nn.relu)
+    return enc_conv3
+
+def apply_faces_fc_encoders(inputs, latent_dim):
+    enc_fc3 = tf.layers.dense(inputs, units=500, activation=tf.nn.relu)
     enc_fc4 = tf.layers.dense(enc_fc3, units=200, activation=tf.nn.relu)
     mean_fc5 = tf.layers.dense(enc_fc4, units=latent_dim)
     stddev_fc5 = tf.layers.dense(enc_fc4, units=latent_dim) # log(sigma^2)
+    return mean_fc5, stddev_fc5
+
+def apply_faces_encoders(inputs, latent_dim):
+    enc_conv3 = apply_faces_conv_encoders(inputs)
+    mean_fc5, stddev_fc5 = apply_faces_fc_encoders(inputs, latent_dim)
     return mean_fc5, stddev_fc5
 
 def bernoulli_recon_loss(inputs, reconstructed_inputs):
@@ -264,13 +272,19 @@ def run():
 def run_class_conditional():
     data, labels = get_mnist_data()
     data = data.reshape(-1, 784) / 255.
+    # data, labels = get_olivetti_data()
+    # data = data.reshape(-1, 64, 64, 1)
     num_classes = 10
     batch_size = 100
-    num_iters = 20000
+    num_iters = 10000
+    img_height, img_width = 28, 28
+    # img_height, img_width = 64, 64
     # Declare model.
     latent_dim = 10
     inputs, input_labels, decoder_train_output, decoder_inputs, \
             decoder_input_labels, decoder_output, loss, trainer = vae_class_conditional(784, latent_dim, num_classes)
+    # inputs, input_labels, decoder_train_output, decoder_inputs, \
+    #         decoder_input_labels, decoder_output, loss, trainer = vae_faces_class_conditional([64, 64, 1], latent_dim, num_classes)
     sess = tf.Session()
     sess.run(tf.global_variables_initializer())
     # Visualization points.
@@ -283,15 +297,15 @@ def run_class_conditional():
         rows.append([xs[0] + step*j for j in range(num_cols)])
         row_labels += [i // 2] * num_cols
     rows = np.array(rows).reshape(-1, latent_dim)
-    row_labels = np.diag(np.arange(10))[row_labels]
-    output_dir = 'out5'
+    row_labels = np.diag(np.arange(num_classes))[row_labels]
+    output_dir = 'out6'
     if not os.path.exists(output_dir):
         os.mkdir(output_dir)
     # Train.
     for t in range(num_iters):
         idx = np.random.choice(np.arange(len(data)), batch_size, replace=False)
         X_batch, y_batch = data[idx], labels[idx]
-        y_batch_one_hot = np.diag(np.arange(10))[y_batch.astype(np.int32)]
+        y_batch_one_hot = np.diag(np.arange(num_classes))[y_batch.astype(np.int32)]
         _, batch_loss = sess.run([trainer, loss], {inputs: X_batch,
                                                    input_labels: y_batch_one_hot})
         if t % 200 == 0:
