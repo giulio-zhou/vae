@@ -1,4 +1,5 @@
-from util import get_mnist_data
+from skimage.transform import resize
+from util import get_mnist_data, get_orl_face_data
 import numpy as np
 import os
 import skimage.io as skio
@@ -42,7 +43,7 @@ def vae(data_dim, latent_dim):
     return inputs, decoder_train_output, \
            decoder_inputs, decoder_output, loss, trainer
 
-def vae_conv(data_dim, latent_dim):
+def vae_mnist_conv(data_dim, latent_dim):
     inputs = tf.placeholder(tf.float32, [None] + list(data_dim))
     batch_size = tf.shape(inputs)[0]
     # Declare decoder components.
@@ -76,6 +77,64 @@ def vae_conv(data_dim, latent_dim):
     decoder_output = tf.keras.layers.Reshape([7, 7, 32])(decoder_output)
     decoder_train_output = tf.reshape(decoder_train_output, [batch_size, 7, 7, 32])
     for decoder_layer in [dec_conv1, dec_conv2]:
+        decoder_output = decoder_layer(decoder_output)
+        decoder_train_output = decoder_layer(decoder_train_output)
+    # Define loss function.
+    eps = 1e-10
+    recon_loss = -tf.reduce_sum(
+        inputs * tf.log(decoder_train_output + eps) + \
+        (1 - inputs) * tf.log((1 - decoder_train_output) + eps), axis=(1, 2, 3))
+    recon_loss = tf.reduce_mean(recon_loss)
+    kl_loss = -0.5 * tf.reduce_sum(
+        1 + stddev_fc5 - tf.square(mean_fc5) - tf.exp(stddev_fc5), axis=1)
+    kl_loss = tf.reduce_mean(kl_loss)
+    loss = recon_loss + kl_loss
+    trainer = tf.train.AdamOptimizer().minimize(loss)
+    return inputs, decoder_train_output, \
+           decoder_inputs, decoder_output, loss, trainer
+
+def vae_face_conv(data_dim, latent_dim):
+    inputs = tf.placeholder(tf.float32, [None] + list(data_dim))
+    batch_size = tf.shape(inputs)[0]
+    # Declare decoder components.
+    dec_fc1 = tf.layers.Dense(units=200, activation=tf.nn.relu)
+    dec_fc2 = tf.layers.Dense(units=7*6*64, activation=tf.nn.relu)
+    dec_conv1 = tf.layers.Conv2DTranspose(filters=32, kernel_size=(3, 3), strides=2,
+                                          padding='same', activation=tf.nn.relu)
+    dec_conv2 = tf.layers.Conv2DTranspose(filters=16, kernel_size=(3, 3), strides=2,
+                                          padding='same', activation=tf.nn.relu)
+    dec_conv3 = tf.layers.Conv2DTranspose(filters=8, kernel_size=(3, 3), strides=2,
+                                          padding='same', activation=tf.nn.relu)
+    dec_conv4 = tf.layers.Conv2DTranspose(filters=1, kernel_size=(3, 3), strides=2,
+                                          padding='same', activation=tf.nn.sigmoid)
+    # Encode.
+    enc_conv1 = tf.layers.conv2d(inputs, filters=8, kernel_size=(3, 3),
+                                 strides=(2, 2), padding='same', activation=tf.nn.relu)
+    enc_conv2 = tf.layers.conv2d(enc_conv1, filters=16, kernel_size=(3, 3),
+                                 strides=(2, 2), padding='same', activation=tf.nn.relu)
+    enc_conv3 = tf.layers.conv2d(enc_conv2, filters=32, kernel_size=(3, 3),
+                                 strides=(2, 2), padding='same', activation=tf.nn.relu)
+    enc_conv4 = tf.layers.conv2d(enc_conv3, filters=64, kernel_size=(3, 3),
+                                 strides=(2, 2), padding='same', activation=tf.nn.relu)
+    enc_fc3 = tf.layers.dense(tf.layers.flatten(enc_conv4), units=500, activation=tf.nn.relu)
+    enc_fc4 = tf.layers.dense(enc_fc3, units=200, activation=tf.nn.relu)
+    mean_fc5 = tf.layers.dense(enc_fc4, units=latent_dim)
+    stddev_fc5 = tf.layers.dense(enc_fc4, units=latent_dim) # log(sigma^2)
+    # Apply reparameterization towards sampling.
+    mvn_sampler = tf.contrib.distributions.MultivariateNormalDiag(
+        loc=tf.zeros(latent_dim))
+    samples = mvn_sampler.sample(batch_size)
+    samples = tf.sqrt(tf.exp(stddev_fc5)) * samples + mean_fc5
+    # Share parameters between decoder used for training and inference.
+    decoder_inputs = tf.placeholder(tf.float32, [None, latent_dim])
+    decoder_output = decoder_inputs
+    decoder_train_output = samples
+    for decoder_layer in [dec_fc1, dec_fc2]:
+        decoder_output = decoder_layer(decoder_output)
+        decoder_train_output = decoder_layer(decoder_train_output)
+    decoder_output = tf.keras.layers.Reshape([7, 6, 64])(decoder_output)
+    decoder_train_output = tf.reshape(decoder_train_output, [batch_size, 7, 6, 64])
+    for decoder_layer in [dec_conv1, dec_conv2, dec_conv3, dec_conv4]:
         decoder_output = decoder_layer(decoder_output)
         decoder_train_output = decoder_layer(decoder_train_output)
     # Define loss function.
@@ -137,14 +196,21 @@ def run():
     data, labels = get_mnist_data()
     data = data.reshape(-1, 784) / 255.
     # data = data.reshape(-1, 28, 28, 1) / 255.
+    # data, labels = get_orl_face_data()
+    # data = np.array([resize(x, (112, 96)) / 255. for x in data])
+    # data = data.reshape(-1, 112, 96, 1)
     batch_size = 100
     num_iters = 10000
+    img_height, img_width = 28, 28
+    # img_height, img_width = 96, 112
     # Declare model.
     latent_dim = 10
     inputs, decoder_train_output, decoder_inputs, \
             decoder_output, loss, trainer = vae(784, latent_dim)
     # inputs, decoder_train_output, decoder_inputs, \
-    #         decoder_output, loss, trainer = vae_conv([28, 28, 1], latent_dim)
+    #         decoder_output, loss, trainer = vae_mnist_conv([28, 28, 1], latent_dim)
+    # inputs, decoder_train_output, decoder_inputs, \
+    #         decoder_output, loss, trainer = vae_face_conv([112, 96, 1], latent_dim)
     sess = tf.Session()
     sess.run(tf.global_variables_initializer())
     # Visualization points.
@@ -168,11 +234,12 @@ def run():
             print(t, batch_loss)
             decoded_outputs = sess.run(decoder_output,
                                        {decoder_inputs: rows})
-            decoded_outputs = decoded_outputs.reshape(num_viz - 1, num_cols, 28, 28)
-            output_buffer = np.zeros(((num_viz - 1) * 28, num_cols * 28))
+            decoded_outputs = decoded_outputs.reshape(num_viz - 1, num_cols, img_height, img_width)
+            output_buffer = np.zeros(((num_viz - 1) * img_height, num_cols * img_width))
             for i in range(num_viz - 1):
                 for j in range(num_cols):
-                    output_buffer[i*28:(i+1)*28, j*28:(j+1)*28] = decoded_outputs[i, j]
+                    output_buffer[i*img_height:(i+1)*img_height,
+                                  j*img_width:(j+1)*img_width] = decoded_outputs[i, j]
             skio.imsave(output_dir + '/%d.png' % t, output_buffer)
 
 def run_class_conditional():
@@ -221,5 +288,5 @@ def run_class_conditional():
             skio.imsave(output_dir + '/%d.png' % t, output_buffer)
 
 if __name__ == '__main__':
-    # run()
-    run_class_conditional()
+    run()
+    # run_class_conditional()
