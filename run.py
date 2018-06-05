@@ -39,6 +39,32 @@ def apply_mnist_conv_encoders(inputs, latent_dim):
     stddev_fc5 = tf.layers.dense(enc_fc4, units=latent_dim) # log(sigma^2)
     return mean_fc5, stddev_fc5
 
+def faces_decoders():
+    dec_fc1 = tf.layers.Dense(units=500, activation=tf.nn.relu)
+    dec_fc2 = tf.layers.Dense(units=8*8*32, activation=tf.nn.relu)
+    dec_conv1 = tf.layers.Conv2DTranspose(filters=64, kernel_size=(3, 3), strides=2,
+                                          padding='same', activation=tf.nn.relu)
+    dec_conv2 = tf.layers.Conv2DTranspose(filters=32, kernel_size=(3, 3), strides=2,
+                                          padding='same', activation=tf.nn.relu)
+    dec_conv3 = tf.layers.Conv2DTranspose(filters=1, kernel_size=(3, 3), strides=2,
+                                          padding='same', activation=tf.nn.sigmoid)
+    dec_fc = [dec_fc1, dec_fc2]
+    dec_conv = [dec_conv1, dec_conv2, dec_conv3]
+    return dec_fc, dec_conv
+
+def apply_faces_encoders(inputs, latent_dim):
+    enc_conv1 = tf.layers.conv2d(inputs, filters=32, kernel_size=(3, 3),
+                                 strides=(2, 2), padding='same', activation=tf.nn.relu)
+    enc_conv2 = tf.layers.conv2d(enc_conv1, filters=64, kernel_size=(3, 3),
+                                 strides=(2, 2), padding='same', activation=tf.nn.relu)
+    enc_conv3 = tf.layers.conv2d(enc_conv2, filters=64, kernel_size=(3, 3),
+                                 strides=(2, 2), padding='same', activation=tf.nn.relu)
+    enc_fc3 = tf.layers.dense(tf.layers.flatten(enc_conv3), units=500, activation=tf.nn.relu)
+    enc_fc4 = tf.layers.dense(enc_fc3, units=200, activation=tf.nn.relu)
+    mean_fc5 = tf.layers.dense(enc_fc4, units=latent_dim)
+    stddev_fc5 = tf.layers.dense(enc_fc4, units=latent_dim) # log(sigma^2)
+    return mean_fc5, stddev_fc5
+
 def bernoulli_recon_loss(inputs, reconstructed_inputs):
     eps = 1e-10
     loss = inputs * tf.log(reconstructed_inputs + eps) + \
@@ -120,25 +146,9 @@ def vae_face_conv(data_dim, latent_dim):
     inputs = tf.placeholder(tf.float32, [None] + list(data_dim))
     batch_size = tf.shape(inputs)[0]
     # Declare decoder components.
-    dec_fc1 = tf.layers.Dense(units=500, activation=tf.nn.relu)
-    dec_fc2 = tf.layers.Dense(units=8*8*32, activation=tf.nn.relu)
-    dec_conv1 = tf.layers.Conv2DTranspose(filters=64, kernel_size=(3, 3), strides=2,
-                                          padding='same', activation=tf.nn.relu)
-    dec_conv2 = tf.layers.Conv2DTranspose(filters=32, kernel_size=(3, 3), strides=2,
-                                          padding='same', activation=tf.nn.relu)
-    dec_conv3 = tf.layers.Conv2DTranspose(filters=1, kernel_size=(3, 3), strides=2,
-                                          padding='same', activation=tf.nn.sigmoid)
+    dec_fc, dec_conv = faces_decoders()
     # Encode.
-    enc_conv1 = tf.layers.conv2d(inputs, filters=32, kernel_size=(3, 3),
-                                 strides=(2, 2), padding='same', activation=tf.nn.relu)
-    enc_conv2 = tf.layers.conv2d(enc_conv1, filters=64, kernel_size=(3, 3),
-                                 strides=(2, 2), padding='same', activation=tf.nn.relu)
-    enc_conv3 = tf.layers.conv2d(enc_conv2, filters=64, kernel_size=(3, 3),
-                                 strides=(2, 2), padding='same', activation=tf.nn.relu)
-    enc_fc3 = tf.layers.dense(tf.layers.flatten(enc_conv3), units=500, activation=tf.nn.relu)
-    enc_fc4 = tf.layers.dense(enc_fc3, units=200, activation=tf.nn.relu)
-    mean_fc5 = tf.layers.dense(enc_fc4, units=latent_dim)
-    stddev_fc5 = tf.layers.dense(enc_fc4, units=latent_dim) # log(sigma^2)
+    mean_fc5, stddev_fc5 = apply_faces_encoders(inputs, latent_dim)
     # Apply reparameterization towards sampling.
     mvn_sampler = tf.contrib.distributions.MultivariateNormalDiag(
         loc=tf.zeros(latent_dim))
@@ -148,22 +158,20 @@ def vae_face_conv(data_dim, latent_dim):
     decoder_inputs = tf.placeholder(tf.float32, [None, latent_dim])
     decoder_output = decoder_inputs
     decoder_train_output = samples
-    for decoder_layer in [dec_fc1, dec_fc2]:
+    for decoder_layer in dec_fc:
         decoder_output = decoder_layer(decoder_output)
         decoder_train_output = decoder_layer(decoder_train_output)
     decoder_output = tf.keras.layers.Reshape([8, 8, 32])(decoder_output)
     decoder_train_output = tf.reshape(decoder_train_output, [batch_size, 8, 8, 32])
-    for decoder_layer in [dec_conv1, dec_conv2, dec_conv3]:
+    for decoder_layer in dec_conv:
         decoder_output = decoder_layer(decoder_output)
         decoder_train_output = decoder_layer(decoder_train_output)
     # Define loss function.
-    eps = 1e-10
     recon_loss = -tf.reduce_sum(
-        inputs * tf.log(decoder_train_output + eps) + \
-        (1 - inputs) * tf.log((1 - decoder_train_output) + eps), axis=(1, 2, 3))
+        bernoulli_recon_loss(inputs, decoder_train_output), axis=(1, 2, 3))
     recon_loss = tf.reduce_mean(recon_loss)
     kl_loss = -0.5 * tf.reduce_sum(
-        1 + stddev_fc5 - tf.square(mean_fc5) - tf.exp(stddev_fc5), axis=1)
+        gaussian_kl_loss(mean_fc5, stddev_fc5), axis=1)
     kl_loss = tf.reduce_mean(kl_loss)
     loss = recon_loss + kl_loss
     trainer = tf.train.AdamOptimizer().minimize(loss)
