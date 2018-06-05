@@ -41,10 +41,10 @@ def apply_mnist_conv_encoders(inputs, latent_dim):
 
 def faces_decoders():
     dec_fc1 = tf.layers.Dense(units=500, activation=tf.nn.relu)
-    dec_fc2 = tf.layers.Dense(units=8*8*32, activation=tf.nn.relu)
-    dec_conv1 = tf.layers.Conv2DTranspose(filters=64, kernel_size=(3, 3), strides=2,
+    dec_fc2 = tf.layers.Dense(units=8*8*64, activation=tf.nn.relu)
+    dec_conv1 = tf.layers.Conv2DTranspose(filters=128, kernel_size=(3, 3), strides=2,
                                           padding='same', activation=tf.nn.relu)
-    dec_conv2 = tf.layers.Conv2DTranspose(filters=32, kernel_size=(3, 3), strides=2,
+    dec_conv2 = tf.layers.Conv2DTranspose(filters=64, kernel_size=(3, 3), strides=2,
                                           padding='same', activation=tf.nn.relu)
     dec_conv3 = tf.layers.Conv2DTranspose(filters=1, kernel_size=(3, 3), strides=2,
                                           padding='same', activation=tf.nn.sigmoid)
@@ -52,12 +52,39 @@ def faces_decoders():
     dec_conv = [dec_conv1, dec_conv2, dec_conv3]
     return dec_fc, dec_conv
 
+def faces_upsample_decoders():
+    dec_fc1 = tf.layers.Dense(units=500, activation=tf.nn.relu)
+    dec_fc2 = tf.layers.Dense(units=8*8*64, activation=tf.nn.relu)
+    dec_upsample1 = lambda x: tf.image.resize_images(
+        x, [16, 16], method=tf.image.ResizeMethod.BILINEAR)
+    dec_conv1 = tf.layers.Conv2D(filters=128, kernel_size=(3, 3), strides=1,
+                                 padding='same', activation=tf.nn.relu)
+    dec_conv1_2 = tf.layers.Conv2D(filters=128, kernel_size=(3, 3), strides=1,
+                                   padding='same', activation=tf.nn.relu)
+    dec_upsample2 = lambda x: tf.image.resize_images(
+        x, [32, 32], method=tf.image.ResizeMethod.BILINEAR)
+    dec_conv2 = tf.layers.Conv2D(filters=64, kernel_size=(3, 3), strides=1,
+                                 padding='same', activation=tf.nn.relu)
+    dec_conv2_2 = tf.layers.Conv2D(filters=64, kernel_size=(3, 3), strides=1,
+                                   padding='same', activation=tf.nn.relu)
+    dec_upsample3 = lambda x: tf.image.resize_images(
+        x, [64, 64], method=tf.image.ResizeMethod.BILINEAR)
+    dec_conv3 = tf.layers.Conv2D(filters=1, kernel_size=(3, 3), strides=1,
+                                 padding='same', activation=tf.nn.relu)
+    dec_conv3_2 = tf.layers.Conv2D(filters=1, kernel_size=(3, 3), strides=1,
+                                   padding='same', activation=tf.nn.sigmoid)
+    dec_fc = [dec_fc1, dec_fc2]
+    dec_conv = [dec_upsample1, dec_conv1, dec_conv1_2,
+                dec_upsample2, dec_conv2, dec_conv2_2,
+                dec_upsample3, dec_conv3, dec_conv3_2]
+    return dec_fc, dec_conv
+
 def apply_faces_conv_encoders(inputs):
     enc_conv1 = tf.layers.conv2d(inputs, filters=32, kernel_size=(3, 3),
                                  strides=(2, 2), padding='same', activation=tf.nn.relu)
     enc_conv2 = tf.layers.conv2d(enc_conv1, filters=64, kernel_size=(3, 3),
                                  strides=(2, 2), padding='same', activation=tf.nn.relu)
-    enc_conv3 = tf.layers.conv2d(enc_conv2, filters=64, kernel_size=(3, 3),
+    enc_conv3 = tf.layers.conv2d(enc_conv2, filters=128, kernel_size=(3, 3),
                                  strides=(2, 2), padding='same', activation=tf.nn.relu)
     return enc_conv3
 
@@ -70,7 +97,8 @@ def apply_faces_fc_encoders(inputs, latent_dim):
 
 def apply_faces_encoders(inputs, latent_dim):
     enc_conv3 = apply_faces_conv_encoders(inputs)
-    mean_fc5, stddev_fc5 = apply_faces_fc_encoders(inputs, latent_dim)
+    enc_conv3 = tf.layers.flatten(enc_conv3)
+    mean_fc5, stddev_fc5 = apply_faces_fc_encoders(enc_conv3, latent_dim)
     return mean_fc5, stddev_fc5
 
 def bernoulli_recon_loss(inputs, reconstructed_inputs):
@@ -169,8 +197,8 @@ def vae_face_conv(data_dim, latent_dim):
     for decoder_layer in dec_fc:
         decoder_output = decoder_layer(decoder_output)
         decoder_train_output = decoder_layer(decoder_train_output)
-    decoder_output = tf.keras.layers.Reshape([8, 8, 32])(decoder_output)
-    decoder_train_output = tf.reshape(decoder_train_output, [batch_size, 8, 8, 32])
+    decoder_output = tf.keras.layers.Reshape([8, 8, 64])(decoder_output)
+    decoder_train_output = tf.reshape(decoder_train_output, [batch_size, 8, 8, 64])
     for decoder_layer in dec_conv:
         decoder_output = decoder_layer(decoder_output)
         decoder_train_output = decoder_layer(decoder_train_output)
