@@ -111,6 +111,32 @@ def gaussian_kl_loss(mean, log_stddev_squared):
     loss = 1 + log_stddev_squared - tf.square(mean) - tf.exp(log_stddev_squared)
     return loss
 
+
+class VAE():
+    def __init__(self, vae_fn, input_dim, latent_dim):
+        self.input_dim = input_dim
+        self.latent_dim = latent_dim
+        vae_tensors = vae_fn(input_dim, latent_dim)
+        self.inputs = vae_tensors[0]
+        self.decoder_train_output = vae_tensors[1]
+        self.decoder_inputs = vae_tensors[2]
+        self.decoder_output = vae_tensors[3]
+        self.loss = vae_tensors[4]
+        self.trainer = vae_tensors[5]
+        self.sess = tf.Session()
+        self.sess.run(tf.global_variables_initializer())
+
+    def decode(self, Z):
+        decoded_outputs = self.sess.run(self.decoder_output,
+                                        {self.decoder_inputs: Z})
+        return decoded_outputs
+
+    def train(self, X):
+        _, batch_loss = self.sess.run([self.trainer, self.loss],
+                                      {self.inputs: X})
+        return batch_loss
+
+
 def vae(data_dim, latent_dim):
     inputs = tf.placeholder(tf.float32, [None, data_dim])
     batch_size = tf.shape(inputs)[0]
@@ -294,20 +320,16 @@ def run():
     # data = data.reshape(-1, 28, 28, 1) / 255.
     # data, labels = get_olivetti_data()
     # data = data.reshape(-1, 64, 64, 1)
+    # data, labels = get_train_data()
     batch_size = 100
     num_iters = 10000
     img_height, img_width = 28, 28
     # img_height, img_width = 64, 64
     # Declare model.
     latent_dim = 10
-    inputs, decoder_train_output, decoder_inputs, \
-            decoder_output, loss, trainer = vae(784, latent_dim)
-    # inputs, decoder_train_output, decoder_inputs, \
-    #         decoder_output, loss, trainer = vae_mnist_conv([28, 28, 1], latent_dim)
-    # inputs, decoder_train_output, decoder_inputs, \
-    #         decoder_output, loss, trainer = vae_face_conv([64, 64, 1], latent_dim)
-    sess = tf.Session()
-    sess.run(tf.global_variables_initializer())
+    vae_model = VAE(vae, 784, latent_dim)
+    # vae_model = VAE(vae_mnist_conv, [28, 28, 1], latent_dim)
+    # vae_model = VAE(vae_face_conv, [64, 64, 3], latent_dim)
     # Visualization points.
     num_viz, num_cols = 21, 20
     xs = np.random.multivariate_normal(
@@ -324,11 +346,10 @@ def run():
     for t in range(num_iters):
         idx = np.random.choice(np.arange(len(data)), batch_size, replace=False)
         X_batch = data[idx]
-        _, batch_loss = sess.run([trainer, loss], {inputs: X_batch})
+        batch_loss = vae_model.train(X_batch)
         if t % 200 == 0:
             print(t, batch_loss)
-            decoded_outputs = sess.run(decoder_output,
-                                       {decoder_inputs: rows})
+            decoded_outputs = vae_model.decode(rows)
             decoded_outputs = decoded_outputs.reshape(num_viz - 1, num_cols, img_height, img_width)
             output_buffer = np.zeros(((num_viz - 1) * img_height, num_cols * img_width))
             for i in range(num_viz - 1):
