@@ -241,14 +241,15 @@ def vae_mnist_conv(data_dim, latent_dim):
     kl_loss = tf.reduce_mean(kl_loss)
     loss = recon_loss + kl_loss
     trainer = tf.train.AdamOptimizer().minimize(loss)
-    return inputs, decoder_train_output, \
+    return inputs, mean_fc5, decoder_train_output, \
            decoder_inputs, decoder_output, loss, trainer
 
 def vae_face_conv(data_dim, latent_dim):
     inputs = tf.placeholder(tf.float32, [None] + list(data_dim))
     batch_size = tf.shape(inputs)[0]
     # Declare decoder components.
-    dec_fc, dec_conv = faces_decoders()
+    # dec_fc, dec_conv = faces_decoders()
+    dec_fc, dec_conv = faces_upsample_decoders()
     # Encode.
     mean_fc5, stddev_fc5 = apply_faces_encoders(inputs, latent_dim)
     # Apply reparameterization towards sampling.
