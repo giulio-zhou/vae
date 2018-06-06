@@ -69,7 +69,7 @@ def faces_upsample_decoders():
                                    padding='same', activation=tf.nn.relu)
     dec_upsample3 = lambda x: tf.image.resize_images(
         x, [64, 64], method=tf.image.ResizeMethod.BILINEAR)
-    dec_conv3 = tf.layers.Conv2D(filters=1, kernel_size=(3, 3), strides=1,
+    dec_conv3 = tf.layers.Conv2D(filters=32, kernel_size=(3, 3), strides=1,
                                  padding='same', activation=tf.nn.relu)
     dec_conv3_2 = tf.layers.Conv2D(filters=1, kernel_size=(3, 3), strides=1,
                                    padding='same', activation=tf.nn.sigmoid)
