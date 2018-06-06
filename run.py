@@ -138,6 +138,10 @@ class VAE():
         encoded_inputs = self.sess.run(self.encoder_mean, {self.inputs: X})
         return encoded_inputs
 
+    def encode_decode_sample(self, X):
+        sample = self.sess.run(self.decoder_train_output, {self.inputs: X})
+        return sample
+
     def train(self, X):
         _, batch_loss = self.sess.run([self.trainer, self.loss],
                                       {self.inputs: X})
@@ -182,6 +186,11 @@ class ConditionalVAE():
         encoded_inputs = self.sess.run(
             self.encoder_mean, {self.inputs: X, self.input_labels: y})
         return encoded_inputs
+
+    def encode_decode_sample(self, X):
+        sample = self.sess.run(self.decoder_train_output,
+                               {self.inputs: X, self.input_labels: y})
+        return sample
 
     def train(self, X, y):
         _, batch_loss = self.sess.run([self.trainer, self.loss],
