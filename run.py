@@ -126,6 +126,7 @@ class VAE():
         self.trainer = vae_tensors[6]
         self.sess = tf.Session()
         self.sess.run(tf.global_variables_initializer())
+        self.saver = tf.train.Saver()
 
     def decode(self, Z):
         decoded_outputs = self.sess.run(self.decoder_output,
@@ -141,6 +142,15 @@ class VAE():
         _, batch_loss = self.sess.run([self.trainer, self.loss],
                                       {self.inputs: X})
         return batch_loss
+
+    def load_model(self, model_dir):
+        self.saver.restore(self.sess, model_dir + '/model')
+
+    def save_model(self, model_dir):
+        if not os.path.exists(model_dir):
+            os.mkdir(model_dir)
+        save_path = self.saver.save(self.sess, model_dir + '/model')
+        print("Model saved in file: %s" % save_path)
 
 class ConditionalVAE():
     def __init__(self, vae_fn, input_dim, latent_dim, num_classes):
@@ -159,6 +169,7 @@ class ConditionalVAE():
         self.trainer = vae_tensors[8]
         self.sess = tf.Session()
         self.sess.run(tf.global_variables_initializer())
+        self.saver = tf.train.Saver()
 
     def decode(self, Z, y):
         decoded_outputs = \
@@ -176,6 +187,16 @@ class ConditionalVAE():
         _, batch_loss = self.sess.run([self.trainer, self.loss],
                                       {self.inputs: X, self.input_labels: y})
         return batch_loss
+
+    def load_model(self, model_dir):
+        self.saver.restore(self.sess, model_dir + '/model')
+
+    def save_model(self, model_dir):
+        if not os.path.exists(model_dir):
+            os.mkdir(model_dir)
+        save_path = self.saver.save(self.sess, model_dir + '/model')
+        print("Model saved in file: %s" % save_path)
+
 
 def vae(data_dim, latent_dim):
     inputs = tf.placeholder(tf.float32, [None, data_dim])
@@ -398,6 +419,7 @@ def run():
                     output_buffer[i*img_height:(i+1)*img_height,
                                   j*img_width:(j+1)*img_width] = decoded_outputs[i, j]
             skio.imsave(output_dir + '/%d.png' % t, output_buffer)
+    vae_model.save_model(output_dir + '/model@%d' % num_iters)
 
 def run_class_conditional():
     data, labels = get_mnist_data()
@@ -444,6 +466,7 @@ def run_class_conditional():
                     output_buffer[i*img_height:(i+1)*img_height,
                                   j*img_width:(j+1)*img_width] = decoded_outputs[i, j]
             skio.imsave(output_dir + '/%d.png' % t, output_buffer)
+    vae_model.save_model(output_dir + '/model@%d' % num_iters)
 
 if __name__ == '__main__':
     run()
