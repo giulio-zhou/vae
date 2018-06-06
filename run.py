@@ -118,11 +118,12 @@ class VAE():
         self.latent_dim = latent_dim
         vae_tensors = vae_fn(input_dim, latent_dim)
         self.inputs = vae_tensors[0]
-        self.decoder_train_output = vae_tensors[1]
-        self.decoder_inputs = vae_tensors[2]
-        self.decoder_output = vae_tensors[3]
-        self.loss = vae_tensors[4]
-        self.trainer = vae_tensors[5]
+        self.encoder_mean = vae_tensors[1]
+        self.decoder_train_output = vae_tensors[2]
+        self.decoder_inputs = vae_tensors[3]
+        self.decoder_output = vae_tensors[4]
+        self.loss = vae_tensors[5]
+        self.trainer = vae_tensors[6]
         self.sess = tf.Session()
         self.sess.run(tf.global_variables_initializer())
 
@@ -130,6 +131,11 @@ class VAE():
         decoded_outputs = self.sess.run(self.decoder_output,
                                         {self.decoder_inputs: Z})
         return decoded_outputs
+
+    def encode(self, X):
+        # Return the mean from using a Gaussian encoder.
+        encoded_inputs = self.sess.run(self.encoder_mean, {self.inputs: X})
+        return encoded_inputs
 
     def train(self, X):
         _, batch_loss = self.sess.run([self.trainer, self.loss],
@@ -144,12 +150,13 @@ class ConditionalVAE():
         vae_tensors = vae_fn(input_dim, latent_dim, num_classes)
         self.inputs = vae_tensors[0]
         self.input_labels = vae_tensors[1]
-        self.decoder_train_output = vae_tensors[2]
-        self.decoder_inputs = vae_tensors[3]
-        self.decoder_input_labels = vae_tensors[4]
-        self.decoder_output = vae_tensors[5]
-        self.loss = vae_tensors[6]
-        self.trainer = vae_tensors[7]
+        self.encoder_mean = vae_tensors[2]
+        self.decoder_train_output = vae_tensors[3]
+        self.decoder_inputs = vae_tensors[4]
+        self.decoder_input_labels = vae_tensors[5]
+        self.decoder_output = vae_tensors[6]
+        self.loss = vae_tensors[7]
+        self.trainer = vae_tensors[8]
         self.sess = tf.Session()
         self.sess.run(tf.global_variables_initializer())
 
@@ -158,6 +165,12 @@ class ConditionalVAE():
             self.sess.run(self.decoder_output, {self.decoder_inputs: Z,
                                                 self.decoder_input_labels: y})
         return decoded_outputs
+
+    def encode(self, X, y):
+        # Return the mean from using a Gaussian encoder.
+        encoded_inputs = self.sess.run(
+            self.encoder_mean, {self.inputs: X, self.input_labels: y})
+        return encoded_inputs
 
     def train(self, X, y):
         _, batch_loss = self.sess.run([self.trainer, self.loss],
@@ -192,7 +205,7 @@ def vae(data_dim, latent_dim):
     kl_loss = tf.reduce_mean(kl_loss)
     loss = recon_loss + kl_loss
     trainer = tf.train.AdamOptimizer().minimize(loss)
-    return inputs, decoder_train_output, \
+    return inputs, mean_fc3, decoder_train_output, \
            decoder_inputs, decoder_output, loss, trainer
 
 def vae_mnist_conv(data_dim, latent_dim):
@@ -264,7 +277,7 @@ def vae_face_conv(data_dim, latent_dim):
     kl_loss = tf.reduce_mean(kl_loss)
     loss = recon_loss + kl_loss
     trainer = tf.train.AdamOptimizer().minimize(loss)
-    return inputs, decoder_train_output, \
+    return inputs, mean_fc5, decoder_train_output, \
            decoder_inputs, decoder_output, loss, trainer
 
 def vae_class_conditional(data_dim, latent_dim, labels_dim):
@@ -298,7 +311,7 @@ def vae_class_conditional(data_dim, latent_dim, labels_dim):
     kl_loss = tf.reduce_mean(kl_loss)
     loss = recon_loss + kl_loss
     trainer = tf.train.AdamOptimizer().minimize(loss)
-    return inputs, input_labels, decoder_train_output, \
+    return inputs, input_labels, mean_fc3, decoder_train_output, \
            decoder_inputs, decoder_input_labels, decoder_output, loss, trainer
 
 def vae_faces_class_conditional(data_dim, latent_dim, labels_dim):
@@ -338,7 +351,7 @@ def vae_faces_class_conditional(data_dim, latent_dim, labels_dim):
     kl_loss = tf.reduce_mean(kl_loss)
     loss = recon_loss + kl_loss
     trainer = tf.train.AdamOptimizer().minimize(loss)
-    return inputs, input_labels, decoder_train_output, \
+    return inputs, input_labels, mean_fc5, decoder_train_output, \
            decoder_inputs, decoder_input_labels, decoder_output, loss, trainer
 
 def run():
