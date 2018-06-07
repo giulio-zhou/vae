@@ -2,7 +2,10 @@ from run import VAE, ConditionalVAE
 from run import vae
 from util import get_mnist_data
 import numpy as np
+import os
 import skimage.io as skio
+from skimage.transform import resize
+from skimage import img_as_ubyte
 
 def compare_mean_vs_samples():
     data, labels = get_mnist_data() 
@@ -72,6 +75,38 @@ def interpolate_between_classes():
                           i*img_width:(i+1)*img_width] = decoded_X
     skio.imsave(output_path, output_buffer)
 
+def generate_encodings():
+    data, labels = get_mnist_data() 
+    data = data.reshape(-1, 784) / 255.
+    # Settings.
+    model_dir = 'out/model@10000'
+    img_height, img_width = 28, 28
+    input_dim = 784
+    latent_dim = 10
+    num_classes = 10
+    batch_size = 100
+    output_dir = 'vae_encodings'
+    # Model.
+    vae_model = VAE(vae, input_dim, latent_dim)
+    vae_model.load_model(model_dir)
+    # Perform encoding.
+    encoded_data = []
+    for i in range(0, len(data), batch_size):
+        start, end = i, min(i + batch_size, len(data))
+        X_batch = data[start:end]
+        encoded_inputs = vae_model.encode(X_batch)
+        encoded_data.append(encoded_inputs)    
+    encoded_data = np.concatenate(encoded_data, axis=0)
+    # Save data.
+    rgb_data = np.stack([data.reshape(-1, 28, 28)] * 3, axis=-1)
+    rgb_data = np.array([img_as_ubyte(resize(x, (14, 14))) for x in rgb_data])
+    if not os.path.exists(output_dir):
+        os.mkdir(output_dir)
+    np.save(output_dir + '/features.npy', encoded_data)
+    np.save(output_dir + '/data.npy', rgb_data)
+    np.save(output_dir + '/labels.npy', labels)
+
 if __name__ == '__main__':
     compare_mean_vs_samples()
     interpolate_between_classes()
+    generate_encodings()
