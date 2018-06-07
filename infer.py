@@ -1,11 +1,10 @@
 from run import VAE, ConditionalVAE
 from run import vae
-from util import get_mnist_data
+from skimage import img_as_ubyte
+from skimage.transform import resize
 import numpy as np
 import os
 import skimage.io as skio
-from skimage.transform import resize
-from skimage import img_as_ubyte
 
 def compare_mean_vs_samples():
     data, labels = get_mnist_data() 
@@ -106,7 +105,45 @@ def generate_encodings():
     np.save(output_dir + '/data.npy', rgb_data)
     np.save(output_dir + '/labels.npy', labels)
 
+def classification_accuracy():
+    from sklearn.svm import LinearSVC
+    from sklearn.neural_network import MLPClassifier
+    from sklearn.metrics import accuracy_score
+    data, labels = get_mnist_data() 
+    data = data.reshape(-1, 784) / 255.
+    # Settings.
+    model_dir = 'out/model@10000'
+    img_height, img_width = 28, 28
+    input_dim = 784
+    latent_dim = 10
+    num_classes = 10
+    batch_size = 100
+    output_dir = 'vae_encodings'
+    # Model.
+    vae_model = VAE(vae, input_dim, latent_dim)
+    vae_model.load_model(model_dir)
+    # Perform encoding.
+    encoded_data = []
+    for i in range(0, len(data), batch_size):
+        start, end = i, min(i + batch_size, len(data))
+        X_batch = data[start:end]
+        encoded_inputs = vae_model.encode(X_batch)
+        encoded_data.append(encoded_inputs)    
+    encoded_data = np.concatenate(encoded_data, axis=0)
+    # Test.
+    idx = np.arange(len(data))
+    np.random.shuffle(idx)
+    train_idx, test_idx = idx[:60000], idx[60000:]
+    # model = LinearSVC(verbose=2)
+    model = MLPClassifier(hidden_layer_sizes=[10, 10, 10, 10], verbose=2)
+    X_train, y_train = encoded_data[train_idx], labels[train_idx]
+    X_test, y_test = encoded_data[test_idx], labels[test_idx]
+    model.fit(X_train, y_train)
+    preds = model.predict(X_test)
+    print(accuracy_score(preds, y_test))
+
 if __name__ == '__main__':
     compare_mean_vs_samples()
     interpolate_between_classes()
     generate_encodings()
+    classification_accuracy()
