@@ -1,10 +1,13 @@
 from run import VAE, ConditionalVAE
-from run import vae
+from run import vae, vae_face_conv
 from skimage import img_as_ubyte
 from skimage.transform import resize
+from util import get_mnist_data, get_jh_data, get_train_data
+import h5py
 import numpy as np
 import os
 import skimage.io as skio
+import skvideo.io
 
 def compare_mean_vs_samples():
     data, labels = get_mnist_data() 
@@ -142,8 +145,44 @@ def classification_accuracy():
     preds = model.predict(X_test)
     print(accuracy_score(preds, y_test))
 
+def video_vae_encode():
+    # Settings.
+    data, labels = get_train_data() 
+    model_dir = 'out_train/model@10000'
+    img_height, img_width = 64, 64
+    input_dim = [64, 64, 3]
+    latent_dim = 100
+    num_classes = 10
+    batch_size = 32
+    display_interval = 1024
+    output_path = 'vae_video.mp4'
+    # Model.
+    vae_model = VAE(vae_face_conv, input_dim, latent_dim)
+    vae_model.load_model(model_dir)
+    # Encode model with video side-by-side.
+    temp_hdf5 = h5py.File('temp.h5', 'w')
+    temp_hdf5.create_dataset('data', [len(data)] + input_dim, 'u1')
+    for i in range(0, len(data), batch_size):
+        start, end = i, min(i + batch_size, len(data))
+        X_batch = data[start:end] / 255.
+        Z_batch = vae_model.encode(X_batch)
+        decoded_outputs = vae_model.decode(Z_batch)
+        temp_hdf5['data'][start:end] = map(img_as_ubyte, decoded_outputs)
+        if i % display_interval == 0:
+            print(i, len(data))
+    vwriter = skvideo.io.FFmpegWriter(
+        output_path, outputdict={'-vcodec': 'libx264', '-pix_fmt': 'yuv420p'})
+    for i in range(len(data)):
+        frame, decoded_frame = data[i], img_as_ubyte(temp_hdf5['data'][i])
+        composite_frame = np.hstack([frame, decoded_frame])
+        vwriter.writeFrame(composite_frame)
+        if i % display_interval == 0:
+            print(i, len(data))
+    os.remove('temp.h5')
+
 if __name__ == '__main__':
-    compare_mean_vs_samples()
-    interpolate_between_classes()
-    generate_encodings()
-    classification_accuracy()
+    # compare_mean_vs_samples()
+    # interpolate_between_classes()
+    # generate_encodings()
+    # classification_accuracy()
+    video_vae_encode()
